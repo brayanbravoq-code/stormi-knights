@@ -134,14 +134,14 @@
   <script>
     // ====== CONFIG - replace with your Supabase project values ======
     const SUPABASE_URL = 'https://miwgkjygmthhzfuamvua.supabase.co';
-    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1pd2dranlnbXRoaHpmdWFtdnVhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE5ODk1MTIsImV4cCI6MjEwNzU2NTUxMn0.Ri8nUhJDVx7GQ01IdIp1NE8NyfLI_XcXVVsXFA_WDRU';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1pd2dranlnbXRoaHpmdWFtdnVhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE5ODk1MTIsImV4cCI6MjEwNzU2NTUxMn0[...]';
     // =================================================================
 
-    const useSupabase = SUPABASE_URL && SUPABASE_URL !== 'https://miwgkjygmthhzfuamvua.supabase.co';
+    const useSupabase = SUPABASE_URL && SUPABASE_ANON_KEY && !SUPABASE_URL.includes('REPLACE_WITH');
     let supabase = null;
 
     if (useSupabase) {
-      supabase = supabaseJs.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     }
 
     const POSITIONS = [
