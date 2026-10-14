@@ -27,6 +27,18 @@
         <button id="newDateBtn" type="button" onclick="openNewDateModal()" class="bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold px-4 py-2.5 rounded-lg transition-colors flex items-center gap-2">
           <i class="fa-solid fa-plus"></i> New Date
         </button>
+        <!-- Captain/Admin login -->
+        <button id="captainBtn" onclick="captainToggle()" class="ml-2 bg-amber-50 hover:bg-amber-100 text-amber-700 text-sm font-semibold px-3 py-2 rounded-lg border border-amber-200 flex items-center gap-2">
+          <i class="fa-solid fa-shield-halved"></i> Captain Login
+        </button>
+
+        <div id="adminControls" class="hidden ml-2 flex items-center gap-2">
+          <label class="flex items-center gap-2 text-xs">
+            <input id="lockToggle" type="checkbox" onchange="toggleLockDate(this.checked)" />
+            <span class="text-slate-600">Lock date (no new signups)</span>
+          </label>
+          <button onclick="captainLogout()" class="bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs px-3 py-2 rounded border border-rose-200">Logout</button>
+        </div>
       </div>
     </header>
 
@@ -127,13 +139,35 @@
       { id: "OPP_LIB", name: "Opposite / Libero", icon: "fa-shield-halved", desc: "Right Pin or Defense" }
     ];
 
+    // store structure: { dates: [...], signups: {date: {teamA:{pos: {name, status}}, teamB:...}}, locks: {date: true}, captainPass: '...', }
     let store = JSON.parse(localStorage.getItem('vb_roster_data')) || {
       dates: ["2026-10-20", "2026-10-27"],
-      signups: {}
+      signups: {},
+      locks: {},
+      captainPass: null
     };
+
+    // migrate old simple string signups to {name,status:'approved'}
+    function migrateStore() {
+      Object.keys(store.signups || {}).forEach(date => {
+        ['teamA', 'teamB'].forEach(team => {
+          const teamMap = store.signups[date][team] || {};
+          Object.keys(teamMap).forEach(pos => {
+            const v = teamMap[pos];
+            if (typeof v === 'string') {
+              teamMap[pos] = { name: v, status: 'approved' };
+            }
+          });
+          store.signups[date][team] = teamMap;
+        });
+      });
+    }
+
+    migrateStore();
 
     let currentDate = store.dates[0] || new Date().toISOString().split('T')[0];
     let selectedSlot = null;
+    let adminMode = false;
 
     function saveStore() {
       localStorage.setItem('vb_roster_data', JSON.stringify(store));
@@ -149,6 +183,48 @@
       if ('serviceWorker' in navigator) {
         navigator.serviceWorker?.register('/sw.js').catch(()=>{/*sw failed*/});
       }
+      updateAdminUI();
+    }
+
+    function updateAdminUI() {
+      const adminControls = document.getElementById('adminControls');
+      const captainBtn = document.getElementById('captainBtn');
+      const lockToggle = document.getElementById('lockToggle');
+      if (adminMode) {
+        adminControls.classList.remove('hidden');
+        captainBtn.classList.add('hidden');
+        lockToggle.checked = !!store.locks[currentDate];
+      } else {
+        adminControls.classList.add('hidden');
+        captainBtn.classList.remove('hidden');
+      }
+    }
+
+    function captainToggle() {
+      // if already has a password set, ask for it. If not, let user create one.
+      if (!store.captainPass) {
+        const pass = prompt('Set a captain password (store locally).');
+        if (!pass) return alert('Captain password not set');
+        store.captainPass = pass;
+        saveStore();
+        adminMode = true;
+        updateAdminUI();
+        alert('Captain mode enabled');
+        return;
+      }
+      const tryPass = prompt('Enter captain password');
+      if (tryPass === store.captainPass) {
+        adminMode = true;
+        updateAdminUI();
+        alert('Captain mode enabled');
+      } else {
+        alert('Wrong password');
+      }
+    }
+
+    function captainLogout() {
+      adminMode = false;
+      updateAdminUI();
     }
 
     function populateDateDropdown() {
@@ -165,6 +241,7 @@
       });
       select.onchange = (e) => {
         currentDate = e.target.value;
+        updateAdminUI();
         renderSlots();
       };
     }
@@ -186,12 +263,14 @@
       POSITIONS.forEach(pos => {
         // Team A Slot
         const playerA = store.signups[currentDate].teamA[pos.id];
-        if (playerA) { filledCount++; teamACount++; }
+        if (playerA && playerA.status === 'approved') { filledCount++; teamACount++; }
+        if (playerA && playerA.status === 'pending') { teamACount++; }
         teamASlots.appendChild(createSlotElement('teamA', pos, playerA));
 
         // Team B Slot
         const playerB = store.signups[currentDate].teamB[pos.id];
-        if (playerB) { filledCount++; teamBCount++; }
+        if (playerB && playerB.status === 'approved') { filledCount++; teamBCount++; }
+        if (playerB && playerB.status === 'pending') { teamBCount++; }
         teamBSlots.appendChild(createSlotElement('teamB', pos, playerB));
       });
 
@@ -222,22 +301,59 @@
       const rightSide = document.createElement('div');
       rightSide.className = "flex items-center gap-2";
 
+      const isLocked = !!store.locks[currentDate];
+
       if (player) {
         const nameSpan = document.createElement('span');
-        nameSpan.className = "text-sm font-semibold text-slate-900 bg-slate-100 px-3 py-1 rounded-md border border-slate-200";
-        nameSpan.textContent = player;
+        nameSpan.className = "text-sm font-semibold text-slate-900 bg-slate-100 px-3 py-1 rounded-md border border-slate-200 flex items-center gap-2";
+        nameSpan.textContent = player.name;
+
+        const statusBadge = document.createElement('span');
+        statusBadge.className = player.status === 'approved' ? 'text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded' : 'text-xs bg-amber-100 text-amber-800 px-2 py-1 rounded';
+        statusBadge.textContent = player.status === 'approved' ? 'Approved' : 'Pending';
+
         const dropBtn = document.createElement('button');
         dropBtn.title = "Drop out";
         dropBtn.className = "text-slate-400 hover:text-rose-500 p-1.5 transition";
         dropBtn.innerHTML = '<i class="fa-solid fa-trash-can text-sm"></i>';
-        dropBtn.onclick = () => removeSignup(team, pos.id);
+        dropBtn.onclick = () => {
+          // disallow removal if locked and not admin
+          if (isLocked && !adminMode) return alert('Date is locked — contact a captain to remove');
+          removeSignup(team, pos.id);
+        };
+
         rightSide.appendChild(nameSpan);
-        rightSide.appendChild(dropBtn);
+        rightSide.appendChild(statusBadge);
+
+        if (player.status === 'pending' && adminMode) {
+          const approveBtn = document.createElement('button');
+          approveBtn.className = 'text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1 rounded';
+          approveBtn.textContent = 'Approve';
+          approveBtn.onclick = () => approveSignup(team, pos.id);
+          rightSide.appendChild(approveBtn);
+
+          const rejectBtn = document.createElement('button');
+          rejectBtn.className = 'text-xs bg-rose-50 hover:bg-rose-100 text-rose-600 px-2 py-1 rounded border border-rose-200';
+          rejectBtn.textContent = 'Reject';
+          rejectBtn.onclick = () => { if (confirm('Reject this signup?')) { removeSignup(team, pos.id); } };
+          rightSide.appendChild(rejectBtn);
+        } else {
+          // non-admin see only status and maybe drop
+          rightSide.appendChild(dropBtn);
+        }
+
       } else {
         const signupBtn = document.createElement('button');
         signupBtn.className = "text-xs font-bold text-amber-600 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-3 py-1.5 rounded-lg transition";
         signupBtn.textContent = "Sign Up";
-        signupBtn.onclick = () => openSignupModal(team, pos.id, pos.name);
+        // if locked and not admin, disable
+        if (isLocked && !adminMode) {
+          signupBtn.disabled = true;
+          signupBtn.classList.add('opacity-50','cursor-not-allowed');
+          signupBtn.title = 'Date locked — awaiting captain approval';
+        } else {
+          signupBtn.onclick = () => openSignupModal(team, pos.id, pos.name);
+        }
         rightSide.appendChild(signupBtn);
       }
 
@@ -272,25 +388,34 @@
 
       // prevent duplicate name in same date (optional)
       const day = store.signups[currentDate];
-      const allNames = Object.values(day.teamA).concat(Object.values(day.teamB));
+      const allNames = Object.values(day.teamA).concat(Object.values(day.teamB)).map(v => v && v.name ? v.name : v);
       if (allNames.includes(name)) {
         if (!confirm(`${name} is already signed up for this date. Add duplicate?`)) {
           return;
         }
       }
 
-      store.signups[currentDate][selectedSlot.team][selectedSlot.posId] = name;
+      const status = adminMode ? 'approved' : 'pending';
+      store.signups[currentDate][selectedSlot.team][selectedSlot.posId] = { name, status };
       saveStore();
       closeSignupModal();
       renderSlots();
     }
 
+    function approveSignup(team, posId) {
+      if (!adminMode) return alert('Only a captain can approve');
+      const entry = store.signups[currentDate][team][posId];
+      if (!entry) return;
+      entry.status = 'approved';
+      saveStore();
+      renderSlots();
+    }
+
     function removeSignup(team, posId) {
-      if (confirm("Drop this spot?")) {
-        delete store.signups[currentDate][team][posId];
-        saveStore();
-        renderSlots();
-      }
+      if (!store.signups[currentDate]) return;
+      delete store.signups[currentDate][team][posId];
+      saveStore();
+      renderSlots();
     }
 
     function clearCurrentDateRoster() {
@@ -325,36 +450,38 @@
       renderSlots();
     }
 
+    function toggleLockDate(locked) {
+      if (!adminMode) return alert('Only a captain can lock or unlock dates');
+      store.locks[currentDate] = locked;
+      saveStore();
+      renderSlots();
+    }
+
     async function copyRosterToClipboard() {
       const dayData = store.signups[currentDate] || { teamA: {}, teamB: {} };
       let text = `🏐 VOLLEYBALL LINEUP - ${currentDate}\n\n`;
       
       text += `--- TEAM BLUE ---\n`;
       POSITIONS.forEach(p => {
-        text += `${p.name}: ${dayData.teamA[p.id] || '[Open]'}\n`;
+        const e = dayData.teamA[p.id];
+        text += `${p.name}: ${e ? e.name + (e.status === 'pending' ? ' [PENDING]' : '') : '[Open]'}\n`;
       });
 
       text += `\n--- TEAM GREEN ---\n`;
       POSITIONS.forEach(p => {
-        text += `${p.name}: ${dayData.teamB[p.id] || '[Open]'}\n`;
+        const e = dayData.teamB[p.id];
+        text += `${p.name}: ${e ? e.name + (e.status === 'pending' ? ' [PENDING]' : '') : '[Open]'}\n`;
       });
 
       try {
         await navigator.clipboard.writeText(text);
-        // friendly non-blocking message
         alert("Roster copied to clipboard!");
       } catch (err) {
-        // fallback
         const ta = document.createElement('textarea');
         ta.value = text;
         document.body.appendChild(ta);
         ta.select();
-        try {
-          document.execCommand('copy');
-          alert("Roster copied to clipboard (fallback)!");
-        } catch (e) {
-          alert("Copy failed — you can export JSON or copy manually.");
-        }
+        try { document.execCommand('copy'); alert("Roster copied to clipboard (fallback)!"); } catch (e) { alert("Copy failed — you can export JSON or copy manually."); }
         ta.remove();
       }
     }
@@ -381,6 +508,7 @@
           const imported = JSON.parse(ev.target.result);
           if (!imported || !imported.dates) throw new Error('Invalid format');
           store = imported;
+          migrateStore();
           saveStore();
           populateDateDropdown();
           renderSlots();
